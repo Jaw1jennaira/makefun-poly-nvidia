@@ -3,10 +3,14 @@ import os, json, math
 # q_tau(h) = clamp(x + drift*h/60 + z_tau*sigma*sqrt(h), 0, 1), 6 decimals.
 # sigma: std of 1-min returns over last 24h, scaled 0.25 (returns are jump-dominated;
 # raw std overstates typical movement), floor 0.001, cap 0.01.
+# The scale 0.25 was chosen so the spread stays near the house baseline's 0.0025
+# for quiet markets while widening for genuinely volatile ones.
 # drift: linear-regression slope over last 12h, per hour, cap +-0.05.
 INDIR = os.environ.get('MAKEFUN_INPUT_DIR', '/input')
 OUTDIR = os.environ.get('MAKEFUN_OUTPUT_DIR', '/output')
 Z = [-1.644854, -0.67449, 0.0, 0.67449, 1.644854]
+SIGMA_SCALE = 0.25  # down-weight jump-dominated std
+DRIFT_CAP = 0.05  # max |drift| in price units per hour
 def price6(x):
     return round(min(1.0, max(0.0, x)) * 1e6) / 1e6 + 0.0
 def forecast_market(prices, horizon):
@@ -20,7 +24,7 @@ def forecast_market(prices, horizon):
     if len(rets) >= 30:
         m = sum(rets)/len(rets)
         var = sum((r-m)**2 for r in rets)/(len(rets)-1)
-        sigma = math.sqrt(max(var, 0.0)) * 0.25
+        sigma = math.sqrt(max(var, 0.0)) * SIGMA_SCALE
     else:
         sigma = 0.0025
     sigma = min(max(sigma, 0.001), 0.01)
@@ -36,7 +40,7 @@ def forecast_market(prices, horizon):
         drift = slope*60.0
     else:
         drift = 0.0
-    drift = min(max(drift, -0.05), 0.05)
+    drift = min(max(drift, -DRIFT_CAP), DRIFT_CAP)
     rows = []
     for h in range(1, horizon+1):
         s = math.sqrt(h)
